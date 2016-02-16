@@ -7,10 +7,26 @@ var System = {
 
 	modules: {},
 
-	import: function (name) {
+	_skip: function (name) {
+		if (name === 'github:jspm/nodelibs-process@0.1.2') {
+			return true;
+		}
+
+		if (name === 'npm:chai-param@0.1.1') {
+			return true;
+		}
+
+		return false;
+	},
+
+	_import: function (name) {
 		var self = this;
 
 		var originalName = name;
+
+		if (this._skip(name)) {
+			return { skippedModule: true };
+		}
 
 		if (!this.modules[name]) {
 			name = this._config.map[name];
@@ -35,11 +51,12 @@ var System = {
 
 		$P.log('loading ' + originalName);
 
-		if (module.func.toString().match(/__require/)){
-			var $__require = this.import.bind(this);
-			var m = {
-				exports: exports
-			};
+		var m = {
+			exports: exports
+		};
+
+		if (module.func.toString().slice(0,80).match(/__require/)){
+			var $__require = this._import.bind(this);
 
 			func = module.func($__require, exports, m);
 		} else {
@@ -47,7 +64,7 @@ var System = {
 				exports[key] = value;
 			}
 
-			func = module.func(exportFunc);
+			func = module.func(exportFunc, exports, m);
 		}
 
 		if (!func) {
@@ -57,7 +74,7 @@ var System = {
 			var i = 0;
 
 			func.setters.forEach(function (setter) {
-				var dependency = self.import(dependencies[i]);
+				var dependency = self._import(dependencies[i]);
 				setter(dependency);
 				i++;
 			});
@@ -68,13 +85,23 @@ var System = {
 			module.cached = func;
 		}
 
-		if (module.cached) {
+		if (module.cached && !module.cached.default) {
 			module.cached.default = module.cached;
 		}
 
 		$P.log('loaded ' + originalName);
 
 		return module.cached;
+	},
+
+	import: function (name) {
+		var result = this._import(name);
+
+		return {
+			then: function (func) {
+				func(result);
+			}
+		}
 	},
 
 	register: function (name, dependencies, func) {
