@@ -1,145 +1,160 @@
 var System = {
-	_config: {},
+  config: function (c) {
+    Object.assign(this._config, c);
+  },
 
-	config: function (c) {
-		Object.assign(this._config, c);
-	},
+  modules: {},
 
-	modules: {},
+  import: function (name) {
+    var result = this._import(name);
 
-	_skip: function (name) {
-		if (name === 'github:jspm/nodelibs-process@0.1.2') {
-			return true;
-		}
+    var proxy = {};
 
-		if (name === 'npm:chai-param@0.1.1') {
-			return true;
-		}
+    proxy.then = function (func) {
+      func(result);
+      return proxy;
+    };
 
-		return false;
-	},
+    proxy.catch = function (func) {
+      // todo: Throw something here
+      return proxy;
+    };
 
-	_import: function (name) {
-		var self = this;
+    return proxy;
+  },
 
-		var originalName = name;
+  register: function (name, dependencies, func) {
+    this.modules[name] = {
+      dependencies: dependencies,
+      func: func
+    };
+  },
 
-		if (this._skip(name)) {
-			return { skippedModule: true };
-		}
+  registerDynamic: function (name, dependencies, bool, func) {
+    this.modules[name] = {
+      dependencies: dependencies,
+      func: func
+    };
+  },
 
-		if (!this.modules[name]) {
-			name = this._config.map[name];
-		}
+  get: function (arg) {
+    if (arg === '@@amd-helpers') {
+      return {
+        createDefine: function () {
+          return function () {};
+        }
+      };
+    }
+    if (arg === '@@global-helpers') {
+      return {
+        prepareGlobal: function () {
+          return function () {};
+        }
+      };
+    }
+  },
 
-		if (!this.modules[name]) {
-			throw new Error('Loader cannot find: ' + originalName);
-			return null;
-		}
+  _config: {},
 
-		var module = this.modules[name];
+  _skip: function (name) {
+    // Skip loading modules. You should probably take them out of your
+    // build, but this is available as a blunt tool at the end of the chain.
+    if (name === 'github:jspm/some-module') {
+      return {
+        some: 'values that you want to return as a stub for this'
+      };
+    }
 
-		if (module.cached) {
-			return module.cached;
-		}
+    return false;
+  },
 
-		// console.log('import', originalName);
+  _import: function (name) {
+    var self = this;
 
-		var func;
+    var originalName = name;
 
-		var exports = {}
+    var skipped = this._skip(name);
 
-		$P.log('loading ' + originalName);
+    if (skipped) {
+      return skipped;
+    }
 
-		var m = {
-			exports: exports
-		};
+    if (!this.modules[name]) {
+      name = this._config.map[name];
+    }
 
-		if (module.func.toString().slice(0,80).match(/__require/)){
-			var $__require = this._import.bind(this);
+    // Search for typescript files
+    if (!this.modules[name]) {
+      name = originalName + '.ts';
+    }
 
-			func = module.func($__require, exports, m);
-		} else {
-			var exportFunc = function (key, value) {
-				exports[key] = value;
-			}
+    if (!this.modules[name]) {
+      throw new Error('Loader cannot find: ' + originalName + ' as ' + name);
+    }
 
-			func = module.func(exportFunc, exports, m);
-		}
+    var module = this.modules[name];
 
-		if (!func) {
-			return null;
-		} else if (func.setters) {
-			var dependencies = module.dependencies;
-			var i = 0;
+    if (module.cached) {
+      return module.cached;
+    }
 
-			func.setters.forEach(function (setter) {
-				var dependency = self._import(dependencies[i]);
-				setter(dependency);
-				i++;
-			});
+    if (module.loading) {
+      console.log('Circular dependency in ' + name);
+      return;
+    }
 
-			func.execute();
-			module.cached = exports;
-		} else {
-			module.cached = func;
-		}
+    var func;
+    var exports = {};
+    var m = {
+      exports: exports
+    };
 
-		if (module.cached && !module.cached.default) {
-			module.cached.default = module.cached;
-		}
+    if (module.func.toString().slice(0, 80).match(/__require/)) {
+      var $__require = this._import.bind(this);
+      func = module.func($__require, exports, m);
+    } else {
+      var exportFunc = function (key, value) {
+        exports[key] = value;
+      };
 
-		$P.log('loaded ' + originalName);
+      func = module.func(exportFunc, exports, m);
+    }
 
-		return module.cached;
-	},
+    if (func === null || func === undefined) {
+      console.log('WARNING: ' + originalName + ' has no exports.');
+      return null;
+    } else if (func.setters) {
+      var dependencies = module.dependencies;
+      var i = 0;
 
-	import: function (name) {
-		var result = this._import(name);
+      func.setters.forEach(function (setter) {
+        var dependency = self._import(dependencies[i]);
+        setter(dependency);
+        i++;
+      });
 
-		return {
-			then: function (func) {
-				func(result);
-			}
-		}
-	},
+      func.execute();
+      module.cached = exports;
+    } else {
+      module.cached = func;
+    }
 
-	register: function (name, dependencies, func) {
-		// console.log('register', arguments);
+    if (typeof module.cached === 'string') {
+      module.cached = {
+        default: module.cached
+      };
+    }
 
-		this.modules[name] = {
-			dependencies: dependencies,
-			func: func
-		};
-	},
+    if (module.cached && !module.cached.default) {
+      module.cached.default = module.cached;
+    }
 
-	registerDynamic: function (name, dependencies, bool, func) {
-		// console.log('registerDynamic', arguments);
+    module.loading = false;
 
-		this.modules[name] = {
-			dependencies: dependencies,
-			func: func
-		};
-	},
-
-	get: function (arg) {
-		if (arg === '@@amd-helpers') {
-			return {
-				createDefine : function () {
-					return function () {};
-				}
-			};
-		}
-		if (arg === '@@global-helpers') {
-			return {
-				prepareGlobal : function () {
-					return function () {};
-				}
-			};
-		}
-	}
+    return module.cached;
+  }
 };
 
 var define = function (name, dependencies, func) {
-	System.register(name, dependencies, func);
-}
+  System.register(name, dependencies, func);
+};
