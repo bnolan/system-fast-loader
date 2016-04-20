@@ -1,9 +1,27 @@
+function ProxyComponent () {
+  // do magic here
+
+  this.default = {
+    name: 'ProxyComponent'
+  };
+}
+
 var System = {
   config: function (c) {
     Object.assign(this._config, c);
   },
 
   modules: {},
+
+  globalHelper: function () {
+  },
+
+  normalize: function () {
+    return {
+      then: function () {
+      }
+    }
+  },
 
   import: function (name) {
     var result = this._import(name);
@@ -47,8 +65,8 @@ var System = {
     }
     if (arg === '@@global-helpers') {
       return {
-        prepareGlobal: function () {
-          return function () {};
+        prepareGlobal: function (moduleId, exportName) {
+          return System.globalHelper.bind(this, moduleId, exportName);
         }
       };
     }
@@ -89,7 +107,8 @@ var System = {
     }
 
     if (!this.modules[name]) {
-      throw new Error('Loader cannot find: ' + originalName + ' as ' + name);
+      console.error('Loader cannot find: ' + originalName + ' as ' + name);
+      return new ProxyComponent();
     }
 
     var module = this.modules[name];
@@ -110,19 +129,27 @@ var System = {
     };
 
     if (module.func.toString().slice(0, 80).match(/__require/)) {
+      System.globalHelper = function (moduleId, exportName) {
+        // console.log(exportName);
+        // console.log(window[exportName]);
+        exports[exportName] = window[exportName];
+        exports.default = window[exportName];
+      }
+
       var $__require = this._import.bind(this);
       func = module.func($__require, exports, m);
     } else {
       var exportFunc = function (key, value) {
         exports[key] = value;
       };
-
       func = module.func(exportFunc, exports, m);
     }
 
-    if (func === null || func === undefined) {
+    if (func === null || func === undefined && (Object.keys(exports).length === 0)) {
       console.log('WARNING: ' + originalName + ' has no exports.');
       return null;
+    } else if (func === null || func === undefined) {
+      module.cached = exports;
     } else if (func.setters) {
       var dependencies = module.dependencies;
       var i = 0;
