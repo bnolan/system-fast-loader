@@ -129,11 +129,10 @@ var System = {
     };
 
     if (module.func.toString().slice(0, 80).match(/__require/)) {
-      System.globalHelper = function (moduleId, exportName) {
-        // console.log(exportName);
-        // console.log(window[exportName]);
-        exports[exportName] = window[exportName];
-        exports.default = window[exportName];
+      System.globalHelper = function (moduleId, key) {
+        var value = window[key];
+        exports[key] = value;
+        exports.default = value;
       }
 
       var $__require = this._import.bind(this);
